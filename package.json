@@ -15,6 +15,7 @@
   ],
   "author": "Jean Lescure <jean@ticowebmedia.com>",
   "license": "MIT",
+  "readme": "README.md",
   "dependencies": {
     "rtcpeerconnection": "^3.1.6"
   }
