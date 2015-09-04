@@ -1,0 +1,21 @@
+{
+  "name": "node-pubnub-webrtc",
+  "version": "0.0.1",
+  "description": "A simplified approach to WebRTC Peer Connections by using PubNub.",
+  "main": "webrtc.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jeanlescure/node-pubnub-webrtc"
+  },
+  "keywords": [
+    "browser",
+    "RTCPeerConnection",
+    "WebRTC",
+    "PubNub"
+  ],
+  "author": "Jean Lescure <jean@ticowebmedia.com>",
+  "license": "MIT",
+  "dependencies": {
+    "rtcpeerconnection": "^3.1.6"
+  }
+}
