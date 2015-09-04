@@ -1,34 +1,16 @@
+var PUBNUB = require("pubnub");
+
 module.exports = function(config){
     var PHONE         = function(){};
     var pubnub        = PUBNUB(config);
     var pubkey        = config.publish_key   || 'demo';
     var subkey        = config.subscribe_key || 'demo';
-    var sessionid     = PUBNUB.uuid();
+    var sessionid     = pubnub.uuid();
     var mystream      = null;
     var myconnection  = false;
     var mediaconf     = config.media || { audio : false, video : false };
     var conversations = {};
 
-    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-    // RTC Peer Connection Session (one per call)
-    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-    var PeerConnection = require('rtcpeerconnection');
-
-    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-    // ICE (many route options per call)
-    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-    var IceCandidate =
-        window.mozRTCIceCandidate ||
-        window.RTCIceCandidate;
-
-    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-    // Media Session Description (offer and answer per call)
-    // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-    var SessionDescription =
-        window.RTCSessionDescription    ||
-        window.mozRTCSessionDescription ||
-        window.webkitRTCSessionDescription;
-        
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     // STUN Server List Configuration (public STUN list)
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -101,18 +83,12 @@ module.exports = function(config){
                 started : +new Date,
                 imgset  : false,
                 imgsent : 0,
-                pc      : new PeerConnection(rtcconfig),
                 closed  : false,
                 usermsg : function(){},
                 thumb   : null,
                 connect : function(){},
                 end     : function(){}
             };
-
-            // Setup Event Methods
-            talk.pc.on('addStream', config.onaddstream || onaddstream);
-            talk.pc.on('ice', onicecandidate);
-            talk.pc.number = number;
 
             // Disconnect and Hangup
             talk.hangup = function(signal) {
@@ -125,7 +101,6 @@ module.exports = function(config){
                 if (signal !== false) transmit( number, { hangup : true } );
 
                 talk.end(talk);
-                talk.pc.close();
                 close_conversation(number);
             };
 
@@ -138,9 +113,6 @@ module.exports = function(config){
             talk.ended     = function(cb) {talk.end     = cb; return talk};
             talk.connected = function(cb) {talk.connect = cb; return talk};
             talk.message   = function(cb) {talk.usermsg = cb; return talk};
-
-            // Add Local Media Streams Audio Video Mic Camera
-            talk.pc.addStream(mystream);
 
             // Notify of Call Status
             update_conversation( talk, 'connecting' );
@@ -203,11 +175,8 @@ module.exports = function(config){
         talk.dialed = true;
 
         // Send SDP Offer (Call)
-        pc.createOffer( function(offer) {
-            transmit( number, { hangup : true } );
-            transmit( number, offer, 2 );
-            pc.setLocalDescription( offer, debugcb, debugcb );
-        }, debugcb );
+        transmit( number, { hangup : true } );
+        transmit( number, offer, 2 );
 
         // Return Session Reference
         return talk;
@@ -220,7 +189,7 @@ module.exports = function(config){
         if (number) return get_conversation(number).send(message);
         PUBNUB.each( conversations, function( number, talk ) {
             talk.send(message);
-        } );
+        });
     };
 
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -230,13 +199,13 @@ module.exports = function(config){
         if (number) return get_conversation(number).hangup();
         PUBNUB.each( conversations, function( number, talk ) {
             talk.hangup();
-        } );
+        });
     };
 
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     // Auto-hangup on Leave
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-    PUBNUB.bind( 'unload,beforeunload', window, function() {
+    process.on('exit', function(code){
         if (PHONE.goodbye) return true;
         PHONE.goodbye = true;
 
@@ -257,7 +226,7 @@ module.exports = function(config){
         } );
 
         return true;
-    } );
+    });
 
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     // Visually Display New Stream
@@ -298,7 +267,7 @@ module.exports = function(config){
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
     function onready(subscribed) {
         if (subscribed) myconnection = true;
-        if (!(mystream && myconnection)) return;
+        if (!myconnection) return;
 
         connectcb();
         readycb();
@@ -362,7 +331,6 @@ module.exports = function(config){
     function add_sdp_offer(message) {
         // Get Call Reference
         var talk = get_conversation(message.number);
-        var pc   = talk.pc;
         var type = message.packet.type == 'offer' ? 'offer' : 'answer';
 
         // Deduplicate SDP Offerings/Answers
@@ -374,21 +342,7 @@ module.exports = function(config){
         update_conversation( talk, 'routing' );
 
         // Add SDP Offer/Answer
-        pc.setRemoteDescription(
-            new SessionDescription(message.packet), function() {
-                // Set Connected Status
-                update_conversation( talk, 'connected' );
-
-                // Call Online and Ready
-                if (pc.remoteDescription.type != 'offer') return;
-
-                // Create Answer to Call
-                pc.createAnswer( function(answer) {
-                    pc.setLocalDescription( answer, debugcb, debugcb );
-                    transmit( message.number, answer, 2 );
-                }, debugcb );
-            }, debugcb
-        );
+        transmit( message.number, {}, 2 );
     }
 
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -398,17 +352,6 @@ module.exports = function(config){
         // Leave if Non-good ICE Packet
         if (!message.packet)           return;
         if (!message.packet.candidate) return;
-
-        // Get Call Reference
-        var talk = get_conversation(message.number);
-        var pc   = talk.pc;
-
-        // Add ICE Candidate Routes
-        pc.addIceCandidate(
-            new IceCandidate(message.packet),
-            debugcb,
-            debugcb
-        );
     }
 
     // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
